@@ -1,0 +1,9 @@
+# Dependency directories
+frontend/node_modules/
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+
+# IDE settings
+.idea/

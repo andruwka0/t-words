@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>История матчей</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="section-card">
+      <div class="row-between">
+        <h1>История матчей</h1>
+        <a class="link-btn btn-secondary back-btn" href="{{ back_href }}">← Назад</a>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Режим</th>
+              <th>Словарь</th>
+              <th>Победитель</th>
+              <th>Дата</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for match in matches %}
+              <tr>
+                <td>#{{ match.id }}</td>
+                <td>{{ match.mode }}</td>
+                <td>{{ match.dictionary_pack }}</td>
+                <td>{{ match.winner_name if match.winner_name else '—' }}</td>
+                <td>{{ match.created_at }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

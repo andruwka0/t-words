@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Админ-панель</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="section-card">
+      <div class="row-between">
+        <h1>Админ-панель</h1>
+        <a href="/profile/{{ admin_user.id }}" class="link-btn btn-secondary back-btn">← Назад</a>
+      </div>
+      <p class="muted" style="margin-bottom:12px;">Панель администратора для {{ admin_user.nickname or admin_user.login }}.</p>
+      {% if error %}
+        <div class="alert">Ошибка: {{ error }}</div>
+      {% endif %}
+      {% if success %}
+        <div class="alert" style="background:#e7f8ee;border-color:#bce6cf;color:#166534;">Изменения сохранены.</div>
+      {% endif %}
+
+      <form method="post" action="/admin" class="form-grid">
+        <input type="hidden" name="admin_user_id" value="{{ admin_user.id }}" />
+        <label>
+          Выберите игрока
+          <select name="target_user_id" required>
+            {% for user in users %}
+              <option value="{{ user.id }}">{{ user.login or user.username }}{% if user.nickname %} ({{ user.nickname }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Добавить токены
+          <input type="number" name="add_tokens" value="0" />
+        </label>
+        <label>
+          Добавить очки игроку
+          <input type="number" name="add_points" value="0" />
+        </label>
+        <input type="hidden" name="confirm_delete" id="confirm-delete" value="" />
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button type="submit" class="btn-primary" name="action" value="apply" style="width:auto;">Применить</button>
+          <button
+            type="submit"
+            class="btn-danger"
+            name="action"
+            value="delete"
+            style="width:auto;"
+            onclick="const ok = confirm('Точно удалить выбранного пользователя? Это необратимо.'); document.getElementById('confirm-delete').value = ok ? 'yes' : ''; return ok;"
+          >
+            Удалить юзера
+          </button>
+        </div>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

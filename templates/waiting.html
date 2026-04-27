@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Поиск соперника</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="section-card">
+      <p class="badge">Matchmaking</p>
+      <h1>Ищем соперника…</h1>
+      <p class="muted">Вы в очереди. Как только второй игрок найдется, матч откроется автоматически.</p>
+      <p class="muted small" id="status-text">Проверка статуса…</p>
+      <div id="stake-suggestion" style="display:none; margin-top:12px;">
+        <p class="muted" id="stake-suggestion-text"></p>
+        <button id="accept-stake-btn" type="button" class="btn-secondary">Сменить ставку</button>
+      </div>
+      <div id="fallback-wrap" style="display:none; margin-top:12px;">
+        <p class="muted">Похоже, соперник долго не находится. Предлагаем сыграть с ботом прямо сейчас.</p>
+        <button id="fallback-btn" type="button" class="btn-primary">Играть с ботом</button>
+      </div>
+    </section>
+  </main>
+
+<script>
+(() => {
+  const playerRef = {{ player_ref | tojson }};
+  const statusEl = document.getElementById('status-text');
+  const fallbackWrap = document.getElementById('fallback-wrap');
+  const fallbackBtn = document.getElementById('fallback-btn');
+  const suggestionWrap = document.getElementById('stake-suggestion');
+  const suggestionText = document.getElementById('stake-suggestion-text');
+  const suggestionBtn = document.getElementById('accept-stake-btn');
+  let suggestedStake = null;
+  let fallbackStarting = false;
+  let fallbackAutoTriggered = false;
+
+  const startFallback = async () => {
+    if (fallbackStarting) return;
+    fallbackStarting = true;
+    statusEl.textContent = 'Запускаем матч с ботом...';
+    try {
+      const response = await fetch(`/matchmaking/fallback-bot/${encodeURIComponent(playerRef)}`, { method: 'POST' });
+      const payload = await response.json();
+      if (payload.session_id) {
+        window.location.replace(`/match/${payload.session_id}/${encodeURIComponent(playerRef)}`);
+        return;
+      }
+      fallbackStarting = false;
+      statusEl.textContent = 'Не удалось начать матч с ботом, продолжаем поиск игрока...';
+    } catch (e) {
+      fallbackStarting = false;
+      statusEl.textContent = 'Ошибка запуска матча с ботом, продолжаем поиск...';
+    }
+  };
+
+  if (fallbackBtn) {
+    fallbackBtn.addEventListener('click', startFallback);
+  }
+  if (suggestionBtn) {
+    suggestionBtn.addEventListener('click', async () => {
+      if (!suggestedStake) return;
+      suggestionBtn.setAttribute('disabled', 'disabled');
+      try {
+        const body = new URLSearchParams({ stake: String(suggestedStake) });
+        const response = await fetch(`/matchmaking/adjust-stake/${encodeURIComponent(playerRef)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString(),
+        });
+        const payload = await response.json();
+        if (payload.status === 'matched' && payload.session_id) {
+          window.location.replace(`/match/${payload.session_id}/${encodeURIComponent(playerRef)}`);
+          return;
+        }
+        if (payload.status === 'ok') {
+          statusEl.textContent = `Ставка изменена на ${payload.stake}. Продолжаем поиск соперника...`;
+          suggestionWrap.style.display = 'none';
+          suggestedStake = null;
+        }
+      } finally {
+        suggestionBtn.removeAttribute('disabled');
+      }
+    });
+  }
+
+  const poll = async () => {
+    try {
+      const response = await fetch(`/matchmaking/status/${encodeURIComponent(playerRef)}`);
+      if (!response.ok) {
+        throw new Error(`status_${response.status}`);
+      }
+      const payload = await response.json();
+      if (payload.status === 'matched' && payload.session_id) {
+        window.location.replace(`/match/${payload.session_id}/${encodeURIComponent(playerRef)}`);
+        return;
+      }
+      statusEl.textContent = payload.waiting_seconds
+        ? `Все еще ищем игрока… (${payload.waiting_seconds} сек)`
+        : 'Все еще ищем игрока…';
+      if (payload.fallback_allowed && fallbackWrap && !fallbackStarting) {
+        fallbackWrap.style.display = 'block';
+        if (!fallbackAutoTriggered) {
+          fallbackAutoTriggered = true;
+          setTimeout(startFallback, 4000);
+        }
+      }
+      if (payload.stake_offer && suggestionWrap && suggestionText) {
+        suggestedStake = payload.stake_offer.proposed_stake;
+        suggestionText.textContent = payload.stake_offer.message
+          ? `${payload.stake_offer.message} (окно предложения: ${payload.stake_offer.window_ends_in} сек.)`
+          : `Предлагаем играть на ставку ${suggestedStake}.`;
+        suggestionWrap.style.display = 'block';
+        if (suggestionBtn && suggestedStake) {
+          suggestionBtn.textContent = `Принять ставку ${suggestedStake}`;
+        }
+      } else if (suggestionWrap) {
+        suggestionWrap.style.display = 'none';
+        suggestedStake = null;
+      }
+    } catch (e) {
+      statusEl.textContent = 'Сервер недоступен, повторяем попытку…';
+    }
+    setTimeout(poll, 1500);
+  };
+
+  poll();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Достижения - {{ profile.nickname }}</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    .achievements-header {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      margin-bottom: 32px;
+      padding: 24px;
+      background: linear-gradient(135deg, #e5e7eb 0%, #cbd5e1 100%);
+      border-radius: 16px;
+      color: #1f2937;
+    }
+    .profile-avatar-small {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: bold;
+    }
+    .achievements-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+    .achievement-card {
+      background: var(--color-white);
+      border: 2px solid var(--color-soft);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      transition: all 0.3s ease;
+    }
+    .achievement-card.unlocked {
+      border-color: var(--color-brand);
+      background: linear-gradient(135deg, #fffbe6 0%, #fff 100%);
+      box-shadow: 0 4px 16px rgba(255, 221, 45, 0.25);
+    }
+    .achievement-card .ach-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .achievement-card .ach-icon {
+      font-size: 40px;
+    }
+    .achievement-card .ach-title {
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--color-dark-gray);
+    }
+    .achievement-card .ach-desc {
+      color: var(--color-text-muted);
+      font-size: 14px;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+    .achievement-card .ach-progress {
+      background: var(--color-soft);
+      border-radius: var(--radius-sm);
+      height: 10px;
+      overflow: hidden;
+    }
+    .achievement-card .ach-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--color-brand), #ffeaa7);
+      border-radius: var(--radius-sm);
+      transition: width 0.3s ease;
+    }
+    .achievement-card.unlocked .ach-progress-bar {
+      background: linear-gradient(90deg, var(--color-brand), #ffd700);
+    }
+    .achievement-card .ach-status {
+      font-size: 13px;
+      font-weight: 600;
+      margin-top: 12px;
+      text-align: right;
+    }
+    .achievement-card.unlocked .ach-status {
+      color: var(--color-success);
+    }
+    .achievement-card:not(.unlocked) .ach-status {
+      color: var(--color-text-muted);
+    }
+    .back-link {
+      display: inline-block;
+      margin-bottom: 20px;
+      color: var(--color-dark-gray);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .back-link:hover {
+      text-decoration: underline;
+      color: var(--color-brand);
+    }
+    .stats-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .stat-mini {
+      background: var(--color-white);
+      padding: 16px;
+      border-radius: var(--radius-sm);
+      text-align: center;
+      border: 1px solid var(--color-soft);
+    }
+    .stat-mini .value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--color-brand);
+    }
+    .stat-mini .label {
+      color: var(--color-text-muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    @media (max-width: 430px) {
+      .achievements-header {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 16px;
+      }
+      .achievements-grid,
+      .stats-summary {
+        grid-template-columns: 1fr;
+      }
+      .ach-desc,
+      .ach-progress {
+        display: none;
+      }
+      .ach-status {
+        text-align: left !important;
+        margin-top: 6px !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <a href="/profile/{{ profile.id }}" class="back-link">← Назад в профиль</a>
+    
+    <div class="achievements-header">
+      <div class="profile-avatar-small">{{ profile.nickname[0]|upper }}</div>
+      <div>
+        <h1 style="margin: 0 0 8px 0; font-size: 28px;">Достижения</h1>
+        <p style="opacity: 0.9; margin: 0;">{{ profile.nickname }} — прогресс ваших побед</p>
+      </div>
+    </div>
+
+    <div class="stats-summary">
+      <div class="stat-mini">
+        <div class="value">{{ profile.coins }}</div>
+        <div class="label">Монеты</div>
+      </div>
+      <div class="stat-mini">
+        <div class="value">{{ profile.fastest_word_seconds|round(2) if profile.fastest_word_seconds else '—' }}</div>
+        <div class="label">Лучшее время (сек)</div>
+      </div>
+      <div class="stat-mini">
+        <div class="value">{{ profile.bot_wins.easy + profile.bot_wins.medium + profile.bot_wins.hard }}</div>
+        <div class="label">Всего побед над ботами</div>
+      </div>
+    </div>
+
+    <div class="achievements-grid">
+      {% for achievement in profile.achievements %}
+      <div class="achievement-card {% if achievement.unlocked %}unlocked{% endif %}">
+        <div class="ach-header">
+          <span class="ach-icon">{% if achievement.unlocked %}🏆{% else %}🔒{% endif %}</span>
+          <span class="ach-title">{{ achievement.title }}</span>
+        </div>
+        <p class="ach-desc">{{ achievement.description }}</p>
+        <div class="ach-progress">
+          <div class="ach-progress-bar" style="width: {% if achievement.progress is none or achievement.target is none or achievement.target == 0 %}0{% elif achievement.progress >= achievement.target %}100{% else %}{{ (achievement.progress / achievement.target * 100)|int }}{% endif %}%"></div>
+        </div>
+        <p class="ach-status">
+          {% if achievement.unlocked %}
+            ✓ Разблокировано!
+          {% elif achievement.progress is none or achievement.target is none %}
+            Прогресс: 0 / {{ achievement.target if achievement.target else '–' }}
+          {% else %}
+            Прогресс: {% if achievement.id == 'fast_hands' %}{{ achievement.progress|round(2) }}{% else %}{{ achievement.progress }}{% endif %} / {{ achievement.target }}
+          {% endif %}
+        </p>
+      </div>
+      {% endfor %}
+    </div>
+  </main>
+</body>
+</html>

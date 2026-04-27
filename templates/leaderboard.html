@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Лидерборд</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="section-card">
+      <div class="row-between">
+        <h1>Лидерборд</h1>
+        <a class="link-btn btn-secondary back-btn" href="{{ back_href }}">← Назад</a>
+      </div>
+
+      <h3>PvP (человек vs человек)</h3>
+      {% if pvp_leaders %}
+        <table>
+          <thead>
+            <tr><th>#</th><th>Игрок</th><th>Арена</th><th>Очки</th></tr>
+          </thead>
+          <tbody>
+            {% for row in pvp_leaders %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ row.name }}</td>
+                <td>{{ row.arena }}</td>
+                <td>{{ row.total_score }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">Пока нет завершенных PvP-матчей.</p>
+      {% endif %}
+
+      <h3 style="margin-top: 20px;">Бот-матчи (человек vs бот)</h3>
+      {% if bot_leaders %}
+        <table>
+          <thead>
+            <tr><th>#</th><th>Игрок</th><th>Очки</th></tr>
+          </thead>
+          <tbody>
+            {% for row in bot_leaders %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ row.name }}</td>
+                <td>{{ row.total_score }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">Пока нет завершенных матчей с ботом.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

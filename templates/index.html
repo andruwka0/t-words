@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Подбор игры</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <nav class="top-nav" id="top-nav">
+      <button type="button" class="nav-toggle" id="nav-toggle">Меню</button>
+      <div class="top-nav-links" id="top-nav-links">
+        <a class="nav-link active" href="#new-game">Подбор игры</a>
+        <a class="nav-link" href="/rules{% if profile %}?user_id={{ profile.id }}{% endif %}">Правила</a>
+        <a class="nav-link" href="/leaderboard{% if profile %}?user_id={{ profile.id }}{% endif %}">Лидерборд</a>
+        {% if profile %}
+        <a class="nav-link" href="/profile/{{ profile.id }}">Профиль</a>
+        <a class="nav-link" href="/shop?user_id={{ profile.id }}">Магазин</a>
+        {% endif %}
+        <a class="nav-link" href="/history{% if profile %}?user_id={{ profile.id }}{% endif %}">История</a>
+        <a class="nav-link" href="/">{% if profile %}Выйти{% else %}Войти{% endif %}</a>
+      </div>
+    </nav>
+    {% if profile %}
+    <section class="section-card" style="margin-top: 16px;">
+      <div class="row-between">
+        <strong>Баланс: {{ profile.coins }} Token</strong>
+        <span class="muted">ID: {{ profile.public_id }}</span>
+      </div>
+    </section>
+    {% endif %}
+
+    <section id="new-game" class="section-card hero">
+      <p class="badge">Minigame</p>
+      <h1>Словесная дуэль</h1>
+      <p class="muted">{% if profile %}Привет, {{ profile.nickname }}! Выберите режим и начинайте матч.{% else %}Авторизуйтесь, чтобы начать матч из профиля.{% endif %}</p>
+    </section>
+
+    <section class="section-card">
+      {% if error %}
+        <div class="alert">{{ error }}</div>
+      {% endif %}
+      {% if profile %}
+      <form method="post" action="/play-profile" class="form-grid">
+        <input type="hidden" name="user_id" value="{{ profile.id }}" />
+
+        <label>
+          Режим игры
+          <select id="game-mode" name="game_mode">
+            <option value="pvp">Человек vs Человек</option>
+            <option value="bot">Человек vs Бот</option>
+          </select>
+        </label>
+
+        <label>
+          Словарь
+          <select name="dictionary_pack">
+            {% for pack in packs %}
+              <option value="{{ pack }}">{{ pack|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label id="stake-wrap">
+          Ставка (Token, PvP)
+          <select name="stake_tokens">
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="150">150</option>
+          </select>
+        </label>
+
+        <label id="bot-level-wrap" style="display:none;">
+          Уровень бота
+          <select name="bot_level">
+            {% for level in bot_levels %}
+              <option value="{{ level }}">{{ level|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <button type="submit" class="btn-primary">Начать матч</button>
+      </form>
+      {% else %}
+      <a href="/" class="btn-primary" style="display:inline-block; text-align:center; text-decoration:none;">Перейти к логину</a>
+      {% endif %}
+    </section>
+
+    <section id="rules" class="section-card desktop-only">
+      <div class="row-between" style="align-items:flex-start;">
+        <div>
+          <h3 style="margin-bottom:4px;">Краткие правила</h3>
+          <p class="muted small">Сводка по текущим механикам игры.</p>
+        </div>
+        <a class="link-btn btn-secondary" href="/rules{% if profile %}?user_id={{ profile.id }}{% endif %}" style="width:auto;">Полные правила</a>
+      </div>
+      <div class="rules-summary-grid" style="margin-top:12px;">
+        <article class="rules-summary-card">
+          <h4>⏱ Ход и таймер</h4>
+          <p>17 секунд на ход. Таймаут = поражение.</p>
+          <p>Сдаться можно в любой момент.</p>
+        </article>
+        <article class="rules-summary-card">
+          <h4>📚 Валидность слова</h4>
+          <p>Только русские существительные в начальной форме.</p>
+          <p>Повторы блокируются с учётом лемм.</p>
+        </article>
+        <article class="rules-summary-card">
+          <h4>🏆 Очки</h4>
+          <p>Формула: длина + скорость + редкость.</p>
+          <p>Тиры: common, uncommon, rare, epic, ultra_rare, legendary.</p>
+        </article>
+        <article class="rules-summary-card">
+          <h4>💰 Экономика</h4>
+          <p>Принятое слово приносит очки и Token.</p>
+          <p>За слово вне словаря: штраф -2.</p>
+        </article>
+        <article class="rules-summary-card">
+          <h4>⚔️ PvP и ставки</h4>
+          <p>Фиксированные ставки: 50 / 100 / 150 Token.</p>
+          <p>Матч стартует только при одинаковой ставке.</p>
+        </article>
+        <article class="rules-summary-card">
+          <h4>🛒 Прогресс</h4>
+          <p>Ежедневная награда: 100 Token.</p>
+          <p>Магазин открывает новые словарные темы.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section-card mobile-only">
+      <h3>Правила и очки</h3>
+      <ul style="margin:8px 0 0; padding-left:18px;">
+        <li>17 секунд на ход, таймаут = поражение.</li>
+        <li>Только существительные в начальной форме.</li>
+        <li>Очки: длина + скорость + редкость.</li>
+        <li>Штраф за слово вне словаря: -2.</li>
+        <li>PvP-ставки: 50 / 100 / 150 Token.</li>
+      </ul>
+      <a class="link-btn btn-secondary" href="/rules{% if profile %}?user_id={{ profile.id }}{% endif %}" style="margin-top:10px;">Открыть правила</a>
+      <a class="link-btn btn-secondary" href="/leaderboard{% if profile %}?user_id={{ profile.id }}{% endif %}" style="margin-top:10px;">Открыть лидерборд</a>
+    </section>
+
+    <section id="leaders" class="section-card desktop-only">
+      <div class="row-between">
+        <h3>Топ игроков</h3>
+        <a class="link" href="/leaderboard{% if profile %}?user_id={{ profile.id }}{% endif %}">Полный лидерборд</a>
+      </div>
+      <h4>PvP</h4>
+      {% if pvp_leaders %}
+        <table>
+          <thead><tr><th>Игрок</th><th>Макс. очки</th></tr></thead>
+          <tbody>
+            {% for row in pvp_leaders %}
+              <tr><td>{{ row.name }} <span class="small muted">({{ row.arena }})</span></td><td>{{ row.total_score }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">Пока нет завершенных PvP-матчей.</p>
+      {% endif %}
+
+      <h4 style="margin-top: 14px;">Бот-матчи</h4>
+      {% if bot_leaders %}
+        <table>
+          <thead><tr><th>Игрок</th><th>Макс. очки</th></tr></thead>
+          <tbody>
+            {% for row in bot_leaders %}
+              <tr><td>{{ row.name }}</td><td>{{ row.total_score }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">Пока нет завершенных матчей против бота.</p>
+      {% endif %}
+    </section>
+  </main>
+
+<script>
+(() => {
+  const navEl = document.getElementById('top-nav');
+  const navToggle = document.getElementById('nav-toggle');
+  if (navEl && navToggle) {
+    navToggle.addEventListener('click', () => {
+      navEl.classList.toggle('open');
+    });
+  }
+
+  const modeEl = document.getElementById('game-mode');
+  const botWrap = document.getElementById('bot-level-wrap');
+  const stakeWrap = document.getElementById('stake-wrap');
+  if (!modeEl || !botWrap || !stakeWrap) return;
+  const stakeInput = stakeWrap.querySelector('select');
+
+  const sync = () => {
+    const isBot = modeEl.value === 'bot';
+    botWrap.style.display = isBot ? 'grid' : 'none';
+    stakeWrap.style.display = isBot ? 'none' : 'grid';
+    if (isBot && stakeInput) {
+      stakeInput.value = '0';
+    }
+  };
+
+  modeEl.addEventListener('change', sync);
+  sync();
+})();
+</script>
+</body>
+</html>

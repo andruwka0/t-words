@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Карточки слов</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <a href="/profile/{{ profile.id }}" class="link-btn btn-secondary back-btn" style="display:inline-block;width:auto;margin-bottom:12px;">← Назад в профиль</a>
+    <section class="section-card">
+      <h1 style="margin-top:0;">Карточки слов</h1>
+      <p class="muted" style="margin-bottom:12px;">Всего открытых слов: {{ words|length }}</p>
+      {% if words %}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;">
+        {% for word in words %}
+          <div class="section-card word-card" style="margin:0;padding:12px;text-align:center;">{{ word }}</div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted">Пока нет открытых слов. Купите расширение в магазине.</p>
+      <a href="/shop?user_id={{ profile.id }}" class="btn-primary link-btn" style="width:auto;">Перейти в магазин</a>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

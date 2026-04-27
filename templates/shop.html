@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Магазин</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <a href="{{ home_link }}" class="link-btn btn-secondary" style="width:auto;display:inline-block;margin-bottom:12px;">← Назад в подбор игры</a>
+
+    <section class="section-card hero">
+      <p class="badge">Store</p>
+      <h1>Магазин улучшений</h1>
+      <p class="muted">Баланс: <strong>{{ profile.coins }} Token</strong></p>
+      <p class="muted">Открытые темы: {{ profile.unlocked_topics|join(', ') if profile.unlocked_topics else 'пока нет' }}</p>
+      <p class="muted">Пользовательских слов: {{ profile.custom_word_count }}</p>
+    </section>
+
+    {% if error %}
+      <div class="alert">Ошибка: {{ error }}</div>
+    {% endif %}
+    {% if success %}
+      <div class="alert" style="background:#e7f8ee;border-color:#bce6cf;color:#166534;">Покупка выполнена успешно.</div>
+    {% endif %}
+
+    <section class="section-card">
+      <h3>Товары</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;">
+        {% for item_id, item in items.items() %}
+          <article class="section-card" style="margin:0;">
+            <h4 style="margin-top:0;">{{ item.title }}</h4>
+            <p class="muted">Тема: {{ item.topic }}</p>
+            <p class="muted">После покупки вы получите {{ item.grant_words }} случайных слов этой темы.</p>
+            <p><strong>{{ item.cost }} Token</strong></p>
+            <form method="post" action="/shop/buy">
+              <input type="hidden" name="user_id" value="{{ profile.id }}" />
+              <input type="hidden" name="item_id" value="{{ item_id }}" />
+              <button type="submit" class="btn-primary" {% if profile.coins < item.cost %}disabled{% endif %}>Купить</button>
+            </form>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+</body>
+</html>

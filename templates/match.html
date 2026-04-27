@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WordFlow Match</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="section-card match-top">
+      <div>
+        <p class="badge">Раунд</p>
+        <h1>Буква: <span class="letter">{{ state.current_letter|upper }}</span></h1>
+        <p class="muted">Сейчас ходит: <strong>{{ turn_name }}</strong></p>
+      </div>
+      <div class="timer" data-seconds="{{ seconds_left }}" data-is-player-turn="{{ 1 if turn_ref == player_ref else 0 }}" data-finished="{{ 1 if state.status == 'finished' else 0 }}">
+        <p>Осталось</p>
+        <strong id="timer-value">{{ seconds_left }}</strong>
+        <span>сек</span>
+      </div>
+    </section>
+
+    {% if error %}
+      <div class="alert">{{ error }}</div>
+    {% endif %}
+    {% if fx %}
+      <div id="combo-badge" class="combo-badge {{ fx }}">
+        {{ fx|upper }} +{{ points }}
+      </div>
+    {% endif %}
+
+    <section class="score-grid">
+      {% for participant in state.participants %}
+        {% set is_me = participant.id == player_ref %}
+        {% if is_me or participant.type != 'bot' %}
+        <article class="section-card score-card{% if is_me %} active{% endif %}">
+          <p class="muted">{% if is_me %}Ваш счет{% else %}Счет соперника{% endif %}</p>
+          <h3>{{ participant.name }}</h3>
+          <p class="score">{{ state.scores[participant.id] }}</p>
+        </article>
+        {% endif %}
+      {% endfor %}
+    </section>
+
+    <section class="section-card">
+      <h2>Ваш ход</h2>
+      <form id="word-form" method="post" action="/match/{{ session_id }}/{{ player_ref }}/submit" class="inline-form">
+        <input id="word-input" type="text" name="word" placeholder="Введите слово на букву {{ state.current_letter|upper }}" required {% if turn_ref != player_ref %}disabled{% endif %} />
+        <button id="submit-btn" type="submit" class="btn-primary" {% if turn_ref != player_ref %}disabled{% endif %}>Отправить</button>
+      </form>
+      <p class="muted small">Таймер фиксированный: {{ turn_seconds }} секунд. Время ответа выбирает система автоматически.</p>
+    </section>
+
+    <section class="section-card">
+      <h3>Использованные слова</h3>
+      <p>{{ state.used_words | join(', ') if state.used_words else 'Пока слов нет.' }}</p>
+    </section>
+
+    <nav class="actions">
+      <a class="link" href="{{ home_link }}">Новый матч</a>
+      <a class="link" href="/history">История</a>
+    </nav>
+
+    <form method="post" action="/match/{{ session_id }}/{{ player_ref }}/surrender" class="surrender-floating">
+      <button type="submit" class="btn-danger">Сдаться</button>
+    </form>
+
+    <form id="timeout-form" method="post" action="/match/{{ session_id }}/{{ player_ref }}/timeout"></form>
+
+    {% if state.status == 'finished' %}
+      <section class="modal-backdrop">
+        <div class="modal section-card">
+          <h2>Матч завершен</h2>
+          <p class="muted">{{ error }}</p>
+          <div class="actions modal-actions">
+            <a class="btn-primary link-btn" href="{{ home_link }}">Начать заново</a>
+            <a class="link-btn btn-secondary" href="/history">Открыть историю</a>
+          </div>
+        </div>
+      </section>
+    {% endif %}
+  </main>
+
+<script>
+(() => {
+  const timer = document.querySelector('.timer');
+  if (!timer) return;
+  const isFinished = timer.dataset.finished === '1';
+  let left = Number(timer.dataset.seconds || '0');
+  const playerTurn = timer.dataset.isPlayerTurn === '1';
+  const value = document.getElementById('timer-value');
+  const form = document.getElementById('word-form');
+  const input = document.getElementById('word-input');
+  const submitBtn = document.getElementById('submit-btn');
+  const combo = document.getElementById('combo-badge');
+  const hasBot = {{ 1 if state.participants | selectattr('type', 'equalto', 'bot') | list | length > 0 else 0 }};
+  let stopped = false;
+  const wsBase = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+  const wsUrl = `${wsBase}/ws/match/{{ session_id }}/{{ player_ref }}`;
+  const currentUpdatedAt = Number({{ state.updated_at | default(0) }});
+  const currentTurnIndex = Number({{ state.turn_index | default(0) }});
+  const currentUsedWordsCount = Number({{ state.used_words | length }});
+  let seenInitialUpdate = false;
+  let ws;
+
+  if (combo) {
+    requestAnimationFrame(() => combo.classList.add('show'));
+    setTimeout(() => combo.classList.remove('show'), 1800);
+  }
+
+  const tick = () => {
+    if (stopped) return;
+    value.textContent = String(Math.max(0, left));
+    if (left <= 0) {
+      if (playerTurn) {
+        document.getElementById('timeout-form').submit();
+      }
+      return;
+    }
+    left -= 1;
+    setTimeout(tick, 1000);
+  };
+
+  if (!playerTurn && !isFinished) {
+    value.textContent = '...';
+    stopped = true;
+  }
+
+  if (form) {
+    form.addEventListener('submit', () => {
+      stopped = true;
+      value.textContent = '...';
+      if (input) input.setAttribute('readonly', 'readonly');
+      if (submitBtn) {
+        submitBtn.setAttribute('disabled', 'disabled');
+        submitBtn.textContent = hasBot ? 'Ход передан боту...' : 'Ход отправлен...';
+      }
+    });
+  }
+
+  if (!isFinished) {
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (message) => {
+        const event = JSON.parse(message.data || '{}');
+        if (!event || !event.type) return;
+        if (event.type === 'match_update') {
+          if (!seenInitialUpdate) {
+            seenInitialUpdate = true;
+            return;
+          }
+          const nextUpdatedAt = Number(event.payload?.updated_at || 0);
+          const nextTurnIndex = Number(event.payload?.turn_index ?? currentTurnIndex);
+          const nextUsedWordsCount = Number((event.payload?.used_words || []).length);
+          if (
+            nextUpdatedAt !== currentUpdatedAt
+            || nextTurnIndex !== currentTurnIndex
+            || nextUsedWordsCount !== currentUsedWordsCount
+          ) {
+            window.location.reload();
+          }
+        } else if (event.type === 'match_finished' || event.type === 'turn_changed') {
+          window.location.reload();
+        }
+      };
+    } catch (_err) {
+      // fallback: if websocket is unavailable, keep local timer behavior only.
+    }
+  }
+
+  tick();
+})();
+</script>
+</body>
+</html>
