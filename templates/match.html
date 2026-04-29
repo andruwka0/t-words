@@ -60,11 +60,10 @@
     <nav class="actions">
       <a class="link" href="{{ home_link }}">Новый матч</a>
       <a class="link" href="/history">История</a>
+      <form method="post" action="/match/{{ session_id }}/{{ player_ref }}/surrender" class="surrender-inline">
+        <button type="submit" class="btn-danger btn-danger-solid">Сдаться</button>
+      </form>
     </nav>
-
-    <form method="post" action="/match/{{ session_id }}/{{ player_ref }}/surrender" class="surrender-floating">
-      <button type="submit" class="btn-danger">Сдаться</button>
-    </form>
 
     <form id="timeout-form" method="post" action="/match/{{ session_id }}/{{ player_ref }}/timeout"></form>
 

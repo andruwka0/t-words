@@ -68,9 +68,8 @@ class WordValidator:
         extra_words: set[str] | None = None,
     ) -> ValidationResult:
         raw_word = self.normalize_word_key(word)
-        normalized = self.normalize(word)
         used_keys = {self.normalize_word_key(value) for value in used_words}
-        if not normalized:
+        if not raw_word:
             return ValidationResult(ok=False, reason='empty_word')
         if len(raw_word.split()) > 1:
             return ValidationResult(ok=False, reason='not_single_word')
@@ -83,18 +82,22 @@ class WordValidator:
             return ValidationResult(ok=False, reason='proper_name_not_allowed')
         if raw_word in self.non_noun_blocklist:
             return ValidationResult(ok=False, reason='noun_only_allowed')
-        parsed = None
+        lemma_key = raw_word
+        noun_parses: list[Any] = []
         if self.morph:
-            try:
-                parsed = self.morph.parse(raw_word)[0]
-            except Exception:
-                parsed = None
-            if parsed is not None:
-                if str(parsed.tag.POS or '') != 'NOUN':
-                    return ValidationResult(ok=False, reason='noun_only_allowed')
-                if parsed.normal_form != raw_word:
-                    return ValidationResult(ok=False, reason='use_normal_form_only')
-        lemma_key = self.normalize_word_key(normalized)
+            noun_parses = self._noun_parses(raw_word)
+            if not noun_parses:
+                return ValidationResult(ok=False, reason='noun_only_allowed')
+
+            strict_candidates = [p for p in noun_parses if self._is_initial_nominative_or_indeclinable(raw_word, p)]
+            if strict_candidates:
+                best = strict_candidates[0]
+                lemma_key = self.normalize_word_key(str(best.normal_form))
+            else:
+                if any(self.normalize_word_key(str(p.normal_form)) == raw_word for p in noun_parses):
+                    return ValidationResult(ok=False, reason='nominative_required')
+                return ValidationResult(ok=False, reason='use_normal_form_only')
+
         if lemma_key in used_keys or raw_word in used_keys:
             return ValidationResult(ok=False, reason='already_used')
 
@@ -102,17 +105,35 @@ class WordValidator:
         pack_words = {self.normalize_word_key(w) for w in pack_words}
         extra_words = extra_words or set()
         extra_words = {self.normalize_word_key(w) for w in extra_words}
-        in_extra = normalized in extra_words or raw_word in extra_words or lemma_key in extra_words
-        in_pack = normalized in pack_words or raw_word in pack_words or lemma_key in pack_words or in_extra
-        if pack_words and not in_pack:
-            # Allow known canonical nouns even if they are outside the reduced game pack.
-            if parsed is not None and parsed.is_known and str(parsed.tag.POS or '') == 'NOUN' and parsed.normal_form == raw_word:
-                pass
-            else:
-                return ValidationResult(ok=False, reason='not_in_dictionary')
+        in_extra = raw_word in extra_words or lemma_key in extra_words
+        in_pack = raw_word in pack_words or lemma_key in pack_words or in_extra
 
-        accepted = normalized if (normalized in pack_words or normalized in extra_words) else raw_word
+        if pack_words and not in_pack:
+            return ValidationResult(ok=False, reason='not_in_dictionary')
+        if not pack_words and self.morph and noun_parses and not noun_parses[0].is_known and not in_extra:
+            return ValidationResult(ok=False, reason='not_in_dictionary')
+
+        accepted = lemma_key if (lemma_key in pack_words or lemma_key in extra_words) else raw_word
         return ValidationResult(ok=True, normalized_word=accepted)
+
+    def _noun_parses(self, raw_word: str) -> list[Any]:
+        if not self.morph:
+            return []
+        try:
+            parses = self.morph.parse(raw_word)
+        except Exception:
+            return []
+        return [p for p in parses if str(p.tag.POS or '') == 'NOUN']
+
+    @staticmethod
+    def _is_initial_nominative_or_indeclinable(raw_word: str, parsed: Any) -> bool:
+        normal_form = str(parsed.normal_form or '')
+        if normal_form != raw_word:
+            return False
+        case = str(getattr(parsed.tag, 'case', '') or '')
+        if case == 'nomn':
+            return True
+        return case == '' or 'Fixd' in str(parsed.tag)
 
     def _is_person_name(self, word: str) -> bool:
         if not self.morph:

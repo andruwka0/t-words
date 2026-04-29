@@ -67,3 +67,23 @@ def test_validation_rejects_repetitive_noise_without_lexical_libs() -> None:
     result = validator.validate('ауауауауауауа', current_letter='а', used_words=set(), dictionary_pack='basic')
     assert not result.ok
     assert result.reason == 'not_in_dictionary'
+
+
+def test_validation_rejects_non_nominative_form_when_morph_available() -> None:
+    validator = WordValidator({'basic': {'носорог'}})
+    if validator.morph is None:
+        return
+    result = validator.validate('носорога', current_letter='н', used_words=set(), dictionary_pack='basic')
+    assert not result.ok
+    assert result.reason == 'use_normal_form_only'
+
+
+def test_validation_blocks_used_lemma_forms() -> None:
+    validator = WordValidator({'basic': {'апельсин'}})
+    used = {'апельсин'}
+    if validator.morph is None:
+        result = validator.validate('апельсин', current_letter='а', used_words=used, dictionary_pack='basic')
+    else:
+        result = validator.validate('апельсина', current_letter='а', used_words=used, dictionary_pack='basic')
+    assert not result.ok
+    assert result.reason == 'already_used'

@@ -21,6 +21,9 @@
         <p class="muted">Похоже, соперник долго не находится. Предлагаем сыграть с ботом прямо сейчас.</p>
         <button id="fallback-btn" type="button" class="btn-primary">Играть с ботом</button>
       </div>
+      <div style="margin-top:12px;">
+        <button id="cancel-queue-btn" type="button" class="btn-secondary">Отменить подбор</button>
+      </div>
     </section>
   </main>
 
@@ -33,9 +36,9 @@
   const suggestionWrap = document.getElementById('stake-suggestion');
   const suggestionText = document.getElementById('stake-suggestion-text');
   const suggestionBtn = document.getElementById('accept-stake-btn');
+  const cancelBtn = document.getElementById('cancel-queue-btn');
   let suggestedStake = null;
   let fallbackStarting = false;
-  let fallbackAutoTriggered = false;
 
   const startFallback = async () => {
     if (fallbackStarting) return;
@@ -58,6 +61,17 @@
 
   if (fallbackBtn) {
     fallbackBtn.addEventListener('click', startFallback);
+  }
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', async () => {
+      cancelBtn.setAttribute('disabled', 'disabled');
+      statusEl.textContent = 'Выходим из очереди...';
+      try {
+        await fetch(`/matchmaking/cancel/${encodeURIComponent(playerRef)}`, { method: 'POST' });
+      } finally {
+        window.location.replace({{ cancel_href | tojson }});
+      }
+    });
   }
   if (suggestionBtn) {
     suggestionBtn.addEventListener('click', async () => {
@@ -102,10 +116,8 @@
         : 'Все еще ищем игрока…';
       if (payload.fallback_allowed && fallbackWrap && !fallbackStarting) {
         fallbackWrap.style.display = 'block';
-        if (!fallbackAutoTriggered) {
-          fallbackAutoTriggered = true;
-          setTimeout(startFallback, 4000);
-        }
+      } else if (fallbackWrap && !fallbackStarting) {
+        fallbackWrap.style.display = 'none';
       }
       if (payload.stake_offer && suggestionWrap && suggestionText) {
         suggestedStake = payload.stake_offer.proposed_stake;

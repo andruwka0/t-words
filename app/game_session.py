@@ -1,15 +1,29 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any
 
 
 class GameSession:
+    _locks: dict[str, asyncio.Lock] = {}
+
     def __init__(self, redis_client: Any, session_id: str) -> None:
         self.redis = redis_client
         self.session_id = session_id
         self.key = f'game:session:{session_id}'
+
+    def _lock(self) -> asyncio.Lock:
+        lock = self._locks.get(self.session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[self.session_id] = lock
+        return lock
+
+    @classmethod
+    def release_lock(cls, session_id: str) -> None:
+        cls._locks.pop(session_id, None)
 
     async def bootstrap(
         self,
@@ -94,58 +108,72 @@ class GameSession:
         await self.redis.set(self.key, json.dumps(state, ensure_ascii=False))
 
     async def apply_word(self, player_id: str, word: str, score: int, lemma: str | None = None) -> dict[str, Any]:
-        state = await self.load()
-        if state is None:
-            raise RuntimeError('session_not_found')
-        state['used_words'].append(word)
-        if lemma:
-            state.setdefault('used_lemmas', []).append(lemma)
-        state['current_letter'] = self._next_letter(word)
-        state['scores'][player_id] = state['scores'].get(player_id, 0) + score
-        state['turn_index'] = (state['turn_index'] + 1) % len(state['turn_order'])
-        now = int(time.time())
-        state['turn_started_at'] = now
-        state['turn_deadline'] = now + 15
-        await self.save(state)
-        return state
+        async with self._lock():
+            state = await self.load()
+            if state is None:
+                raise RuntimeError('session_not_found')
+            if state.get('status') == 'finished':
+                raise RuntimeError('session_finished')
+            current_ref = state['turn_order'][state['turn_index']]
+            if current_ref != player_id:
+                raise RuntimeError('not_your_turn')
+            state['used_words'].append(word)
+            if lemma:
+                state.setdefault('used_lemmas', []).append(lemma)
+            state['current_letter'] = self._next_letter(word)
+            state['scores'][player_id] = state['scores'].get(player_id, 0) + score
+            state['turn_index'] = (state['turn_index'] + 1) % len(state['turn_order'])
+            now = int(time.time())
+            state['turn_started_at'] = now
+            state['turn_deadline'] = now + 15
+            await self.save(state)
+            return state
 
     async def apply_penalty(self, player_id: str, penalty: int, switch_turn: bool = True) -> dict[str, Any]:
-        state = await self.load()
-        if state is None:
-            raise RuntimeError('session_not_found')
-        state['scores'][player_id] = state['scores'].get(player_id, 0) - abs(int(penalty))
-        if switch_turn:
-            state['turn_index'] = (state['turn_index'] + 1) % len(state['turn_order'])
-        now = int(time.time())
-        state['turn_started_at'] = now
-        state['turn_deadline'] = now + 15
-        await self.save(state)
-        return state
+        async with self._lock():
+            state = await self.load()
+            if state is None:
+                raise RuntimeError('session_not_found')
+            if state.get('status') == 'finished':
+                raise RuntimeError('session_finished')
+            if switch_turn:
+                current_ref = state['turn_order'][state['turn_index']]
+                if current_ref != player_id:
+                    raise RuntimeError('not_your_turn')
+            state['scores'][player_id] = state['scores'].get(player_id, 0) - abs(int(penalty))
+            if switch_turn:
+                state['turn_index'] = (state['turn_index'] + 1) % len(state['turn_order'])
+            now = int(time.time())
+            state['turn_started_at'] = now
+            state['turn_deadline'] = now + 15
+            await self.save(state)
+            return state
 
     async def hot_swap_bot(self, new_player_id: str, freeze_seconds: int = 3) -> dict[str, Any]:
-        state = await self.load()
-        if state is None:
-            raise RuntimeError('session_not_found')
+        async with self._lock():
+            state = await self.load()
+            if state is None:
+                raise RuntimeError('session_not_found')
 
-        bot_id = None
-        for p in state['participants']:
-            if p['type'] == 'bot':
-                bot_id = p['id']
-                p['id'] = new_player_id
-                p['name'] = new_player_id
-                p['type'] = 'human'
-                break
+            bot_id = None
+            for p in state['participants']:
+                if p['type'] == 'bot':
+                    bot_id = p['id']
+                    p['id'] = new_player_id
+                    p['name'] = new_player_id
+                    p['type'] = 'human'
+                    break
 
-        if not bot_id:
-            state['participants'].append({'id': new_player_id, 'name': new_player_id, 'type': 'human'})
-            state['turn_order'].append(new_player_id)
-        else:
-            state['turn_order'] = [new_player_id if pid == bot_id else pid for pid in state['turn_order']]
-            state['scores'][new_player_id] = state['scores'].pop(bot_id, 0)
+            if not bot_id:
+                state['participants'].append({'id': new_player_id, 'name': new_player_id, 'type': 'human'})
+                state['turn_order'].append(new_player_id)
+            else:
+                state['turn_order'] = [new_player_id if pid == bot_id else pid for pid in state['turn_order']]
+                state['scores'][new_player_id] = state['scores'].pop(bot_id, 0)
 
-        state['protected_turn_until'] = int(time.time()) + freeze_seconds
-        await self.save(state)
-        return state
+            state['protected_turn_until'] = int(time.time()) + freeze_seconds
+            await self.save(state)
+            return state
 
     @staticmethod
     def _next_letter(word: str) -> str:

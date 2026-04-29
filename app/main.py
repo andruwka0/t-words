@@ -58,6 +58,7 @@ match_repo = MatchRepository()
 appeal_repo = AppealRepository()
 rating_service = RatingService()
 matchmaking = MatchmakingService(redis_client)
+MATCHMAKING_OP_LOCK = asyncio.Lock()
 
 packs_path = Path('app/data/packs.json')
 raw_packs = json.loads(packs_path.read_text())
@@ -1035,75 +1036,98 @@ async def play(
 async def waiting_page(request: Request, player_ref: str) -> HTMLResponse:
     raw_stake = await redis_client.get(f'mm:queued_stake:{player_ref}')
     queued_stake = int(raw_stake) if str(raw_stake).isdigit() else 0
-    return templates.TemplateResponse(request, 'waiting.html', {'player_ref': player_ref, 'queued_stake': queued_stake})
+    user_id = _user_id_from_ref(player_ref)
+    cancel_href = f'/home?user_id={user_id}' if user_id is not None else '/home'
+    return templates.TemplateResponse(
+        request,
+        'waiting.html',
+        {'player_ref': player_ref, 'queued_stake': queued_stake, 'cancel_href': cancel_href},
+    )
+
+
+async def _is_active_player_session(player_ref: str, session_id: str) -> bool:
+    session = GameSession(redis_client, str(session_id))
+    state = await session.load()
+    if not state:
+        return False
+    if state.get('status') == 'finished':
+        return False
+    participants = {p.get('id') for p in state.get('participants', [])}
+    return player_ref in participants
 
 
 async def _try_match_waiting_player(player_ref: str, db: AsyncSession) -> str | None:
-    current_session = await redis_client.get(f'mm:player_session:{player_ref}')
-    if current_session:
-        return str(current_session)
-    own_stake_raw = await redis_client.get(f'mm:queued_stake:{player_ref}')
-    own_stake = int(own_stake_raw) if str(own_stake_raw).isdigit() else 0
-    if own_stake <= 0:
-        return None
-    own_pack = str(await redis_client.get(f'mm:queued_pack:{player_ref}') or 'basic')
+    async with MATCHMAKING_OP_LOCK:
+        current_session = await redis_client.get(f'mm:player_session:{player_ref}')
+        if current_session and await _is_active_player_session(player_ref, str(current_session)):
+            return str(current_session)
+        if current_session:
+            await _redis_delete(f'mm:player_session:{player_ref}')
+        own_stake_raw = await redis_client.get(f'mm:queued_stake:{player_ref}')
+        own_stake = int(own_stake_raw) if str(own_stake_raw).isdigit() else 0
+        if own_stake <= 0:
+            return None
+        own_pack = str(await redis_client.get(f'mm:queued_pack:{player_ref}') or 'basic')
 
-    queue_rows = await redis_client.lrange('mm:queue', 0, -1)
-    candidate_ref = None
-    candidate_name = None
-    own_row = None
-    candidate_row = None
-    for row in queue_rows:
-        queued_ref, queued_name = MatchmakingService._decode(row)
-        if queued_ref == player_ref and own_row is None:
-            own_row = row
-        if not queued_ref or queued_ref == player_ref:
-            continue
-        queued_at = await redis_client.get(f'mm:queued_at:{queued_ref}')
-        if not queued_at:
-            continue
-        queued_stake_raw = await redis_client.get(f'mm:queued_stake:{queued_ref}')
-        queued_stake = int(queued_stake_raw) if str(queued_stake_raw).isdigit() else 0
-        if queued_stake != own_stake:
-            continue
-        candidate_ref = queued_ref
-        candidate_name = queued_name
-        candidate_row = row
-        break
-    if candidate_ref is None:
-        return None
+        queue_rows = await redis_client.lrange('mm:queue', 0, -1)
+        candidate_ref = None
+        candidate_name = None
+        own_row = None
+        candidate_row = None
+        for row in queue_rows:
+            queued_ref, queued_name = MatchmakingService._decode(row)
+            if queued_ref == player_ref and own_row is None:
+                own_row = row
+            if not queued_ref or queued_ref == player_ref:
+                continue
+            queued_at = await redis_client.get(f'mm:queued_at:{queued_ref}')
+            if not queued_at:
+                continue
+            queued_stake_raw = await redis_client.get(f'mm:queued_stake:{queued_ref}')
+            queued_stake = int(queued_stake_raw) if str(queued_stake_raw).isdigit() else 0
+            if queued_stake != own_stake:
+                continue
+            candidate_ref = queued_ref
+            candidate_name = queued_name
+            candidate_row = row
+            break
+        if candidate_ref is None:
+            return None
 
-    own_user_id = _user_id_from_ref(player_ref)
-    opponent_user_id = _user_id_from_ref(candidate_ref)
-    own_user = await user_repo.get_by_id(db, own_user_id) if own_user_id is not None else None
-    opponent_user = await user_repo.get_by_id(db, opponent_user_id) if opponent_user_id is not None else None
-    if own_user is None or opponent_user is None:
-        return None
+        own_user_id = _user_id_from_ref(player_ref)
+        opponent_user_id = _user_id_from_ref(candidate_ref)
+        own_user = await user_repo.get_by_id(db, own_user_id) if own_user_id is not None else None
+        opponent_user = await user_repo.get_by_id(db, opponent_user_id) if opponent_user_id is not None else None
+        if own_user is None or opponent_user is None:
+            return None
 
-    own_name = own_user.nickname or own_user.login or own_user.username
-    opponent_name = candidate_name or opponent_user.nickname or opponent_user.login or opponent_user.username
-    started = await _start_human_match(
-        db=db,
-        first_ref=candidate_ref,
-        first_name=opponent_name,
-        second_ref=player_ref,
-        second_name=own_name,
-        first_user_id=opponent_user.id,
-        second_user_id=own_user.id,
-        dictionary_pack=own_pack,
-        first_stake=own_stake,
-        second_stake=own_stake,
-    )
-    if own_row:
-        await redis_client.lrem('mm:queue', 0, own_row)
-    if candidate_row:
-        await redis_client.lrem('mm:queue', 0, candidate_row)
-    return str(started['session_id'])
+        own_name = own_user.nickname or own_user.login or own_user.username
+        opponent_name = candidate_name or opponent_user.nickname or opponent_user.login or opponent_user.username
+        started = await _start_human_match(
+            db=db,
+            first_ref=candidate_ref,
+            first_name=opponent_name,
+            second_ref=player_ref,
+            second_name=own_name,
+            first_user_id=opponent_user.id,
+            second_user_id=own_user.id,
+            dictionary_pack=own_pack,
+            first_stake=own_stake,
+            second_stake=own_stake,
+        )
+        if own_row:
+            await redis_client.lrem('mm:queue', 0, own_row)
+        if candidate_row:
+            await redis_client.lrem('mm:queue', 0, candidate_row)
+        return str(started['session_id'])
 
 
 @app.get('/matchmaking/status/{player_ref}')
 async def matchmaking_status(player_ref: str, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     session_id = await redis_client.get(f'mm:player_session:{player_ref}')
+    if session_id and not await _is_active_player_session(player_ref, str(session_id)):
+        await _redis_delete(f'mm:player_session:{player_ref}')
+        session_id = None
     if not session_id:
         session_id = await _try_match_waiting_player(player_ref, db)
     if session_id:
@@ -1161,6 +1185,23 @@ async def matchmaking_status(player_ref: str, db: AsyncSession = Depends(get_db)
     return {'status': 'matched', 'session_id': str(session_id), 'player_ref': player_ref}
 
 
+@app.post('/matchmaking/cancel/{player_ref}')
+async def matchmaking_cancel(player_ref: str) -> dict[str, Any]:
+    queue_rows = await redis_client.lrange('mm:queue', 0, -1)
+    for row in queue_rows:
+        queued_ref, _ = MatchmakingService._decode(row)
+        if queued_ref == player_ref:
+            await redis_client.lrem('mm:queue', 0, row)
+            break
+    await _redis_delete(
+        f'mm:queued_at:{player_ref}',
+        f'mm:queued_pack:{player_ref}',
+        f'mm:queued_stake:{player_ref}',
+        f'mm:player_session:{player_ref}',
+    )
+    return {'status': 'cancelled'}
+
+
 @app.post('/matchmaking/adjust-stake/{player_ref}')
 async def matchmaking_adjust_stake(
     player_ref: str,
@@ -1190,8 +1231,10 @@ async def matchmaking_fallback_to_bot(player_ref: str, db: AsyncSession = Depend
         return {'status': 'user_not_found'}
 
     session_id = await redis_client.get(f'mm:player_session:{player_ref}')
-    if session_id:
+    if session_id and await _is_active_player_session(player_ref, str(session_id)):
         return {'status': 'already_matched', 'session_id': session_id}
+    if session_id:
+        await _redis_delete(f'mm:player_session:{player_ref}')
 
     queued_at = await redis_client.get(f'mm:queued_at:{player_ref}')
     now = int(time.time())
@@ -1323,7 +1366,10 @@ async def match_submit_word(
     )
     if not res.ok:
         if res.reason in {'word_not_in_dictionary', 'not_in_dictionary'}:
-            penalized = await session.apply_penalty(player_ref, penalty=2)
+            try:
+                penalized = await session.apply_penalty(player_ref, penalty=2)
+            except RuntimeError:
+                return RedirectResponse(url=f'/match/{session_id}/{player_ref}?error=state_outdated', status_code=303)
             has_bot_penalty = any(p.get('type') == 'bot' for p in penalized.get('participants', []))
             if has_bot_penalty:
                 if background_tasks is not None:
@@ -1345,7 +1391,10 @@ async def match_submit_word(
     spent = max(0.2, min(float(TURN_SECONDS), time.time() - float(state['turn_started_at'])))
     score_info = calculate_score_details(normalized, spent)
     score = score_info.score
-    updated = await session.apply_word(player_ref, normalized, score, lemma=validator.normalize(normalized))
+    try:
+        updated = await session.apply_word(player_ref, normalized, score, lemma=validator.normalize(normalized))
+    except RuntimeError:
+        return RedirectResponse(url=f'/match/{session_id}/{player_ref}?error=state_outdated', status_code=303)
     await _record_word_stats(db, player_ref, score, spent)
     if has_bot and next_letter not in SUPPORTED_BOT_LETTERS:
         bot_ref = next((p['id'] for p in updated.get('participants', []) if p.get('type') == 'bot'), '')
@@ -1506,7 +1555,11 @@ async def game_ws(websocket: WebSocket, session_id: str, player_ref: str) -> Non
                 )
                 if not res.ok:
                     if res.reason in {'word_not_in_dictionary', 'not_in_dictionary'}:
-                        penalized = await session.apply_penalty(player_ref, penalty=2)
+                        try:
+                            penalized = await session.apply_penalty(player_ref, penalty=2)
+                        except RuntimeError:
+                            await websocket.send_json({'type': 'word_rejected', 'payload': {'reason': 'state_outdated', 'word': payload.word}})
+                            continue
                         await manager.broadcast(
                             session_id,
                             {'type': 'word_rejected', 'payload': {'reason': res.reason, 'word': payload.word, 'penalty': -2}},
@@ -1524,7 +1577,11 @@ async def game_ws(websocket: WebSocket, session_id: str, player_ref: str) -> Non
 
                 normalized = res.normalized_word or payload.word
                 score = calculate_score(normalized, payload.response_seconds)
-                updated = await session.apply_word(player_ref, normalized, score, lemma=validator.normalize(normalized))
+                try:
+                    updated = await session.apply_word(player_ref, normalized, score, lemma=validator.normalize(normalized))
+                except RuntimeError:
+                    await websocket.send_json({'type': 'word_rejected', 'payload': {'reason': 'state_outdated', 'word': payload.word}})
+                    continue
                 async with SessionLocal() as db:
                     await _record_word_stats(db, player_ref, score, payload.response_seconds)
                 await manager.broadcast(session_id, {'type': 'word_accepted', 'payload': {'word': normalized, 'score': score}})
@@ -1536,7 +1593,10 @@ async def game_ws(websocket: WebSocket, session_id: str, player_ref: str) -> Non
 
             elif event_type == 'request_hot_swap':
                 newcomer = event.get('payload', {}).get('new_player_ref', f'human_{int(time.time())}')
-                swapped = await session.hot_swap_bot(newcomer, freeze_seconds=3)
+                try:
+                    swapped = await session.hot_swap_bot(newcomer, freeze_seconds=3)
+                except RuntimeError:
+                    continue
                 await manager.broadcast(session_id, {'type': 'player_joined', 'payload': {'player': newcomer}})
                 await manager.broadcast(session_id, {'type': 'bot_replaced', 'payload': swapped})
 
@@ -1564,7 +1624,10 @@ async def _maybe_bot_turn(session_id: str, session: GameSession) -> None:
     has_pool_options = any(word.startswith(letter) and word not in used_words for word in pool)
     has_global_options = any(word.startswith(letter) and word not in used_words for word in bot_service.words)
     if not has_pool_options and not has_global_options:
-        skipped = await session.apply_penalty(current_ref, penalty=0)
+        try:
+            skipped = await session.apply_penalty(current_ref, penalty=0)
+        except RuntimeError:
+            return
         await manager.broadcast(session_id, {'type': 'bot_skipped', 'payload': {'reason': 'no_words_for_letter', 'letter': letter}})
         await manager.broadcast(session_id, {'type': 'turn_changed', 'payload': {'turn': skipped['turn_order'][skipped['turn_index']]}})
         await manager.broadcast(session_id, {'type': 'match_update', 'payload': skipped})
@@ -1616,14 +1679,20 @@ async def _maybe_bot_turn(session_id: str, session: GameSession) -> None:
             break
 
     if not picked:
-        skipped = await session.apply_penalty(current_ref, penalty=0)
+        try:
+            skipped = await session.apply_penalty(current_ref, penalty=0)
+        except RuntimeError:
+            return
         await manager.broadcast(session_id, {'type': 'bot_skipped', 'payload': {'reason': 'pick_failed', 'letter': letter}})
         await manager.broadcast(session_id, {'type': 'turn_changed', 'payload': {'turn': skipped['turn_order'][skipped['turn_index']]}})
         await manager.broadcast(session_id, {'type': 'match_update', 'payload': skipped})
         return
 
     score = 0
-    updated = await session.apply_word(current_ref, picked, score, lemma=validator.normalize(picked))
+    try:
+        updated = await session.apply_word(current_ref, picked, score, lemma=validator.normalize(picked))
+    except RuntimeError:
+        return
     updated['bot_success_count'] = success_count + 1
     updated['bot_processing'] = False
     updated['bot_last_word'] = picked
@@ -1661,6 +1730,10 @@ async def _finish_session(session: GameSession, loser_ref: str, reason: str) -> 
     state['finish_reason'] = reason
     state['winner_ref'] = winner_ref
     await session.save(state)
+    GameSession.release_lock(session.session_id)
+    participants = [p.get('id', '') for p in state.get('participants', []) if p.get('id')]
+    if participants:
+        await _redis_delete(*[f'mm:player_session:{pid}' for pid in participants])
 
     match_id = await redis_client.get(f'session:match:{session.session_id}')
     if match_id and str(match_id).isdigit():

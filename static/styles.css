@@ -273,6 +273,16 @@ select:focus {
   font-weight: 700;
 }
 
+.btn-danger-solid {
+  background: #d92d20;
+  color: #fff;
+  border-color: #b42318;
+}
+
+.btn-danger-solid:hover {
+  filter: brightness(0.96);
+}
+
 .mobile-back-btn {
   display: none;
 }
@@ -289,16 +299,11 @@ select:focus {
   line-height: 1.2;
 }
 
-.surrender-floating {
-  position: fixed;
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 40;
+.surrender-inline {
   width: auto;
 }
 
-.surrender-floating .btn-danger {
+.surrender-inline .btn-danger {
   width: auto;
   min-width: 110px;
 }
@@ -438,12 +443,6 @@ li { margin: 6px 0; }
   .mobile-back-btn {
     display: inline-block;
     margin-bottom: 12px;
-  }
-  .surrender-floating {
-    top: auto;
-    bottom: 12px;
-    right: 12px;
-    transform: none;
   }
 }
 
